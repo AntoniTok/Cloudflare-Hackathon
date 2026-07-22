@@ -14,9 +14,12 @@ self-contained HTML page that renders live in a sandboxed iframe and is saved to
 ## Architecture
 
 ```
-Browser (React shell: URL + instruction)
-   │  WebSocket (useAgent)
-   ▼
+Chrome active tab ──► Extension side panel (prompt)
+                              │
+                              ▼
+                     Full-tab React viewer
+                              │  WebSocket (useAgent)
+                              ▼
 Worker (routeAgentRequest)  ── GET /view/{id} → serves saved HTML from KV
    │
    ▼
@@ -38,8 +41,9 @@ TransformerAgent (Durable Object, Agents SDK)
 | Extraction (SPA) | Browser Rendering (Puppeteer) → HTML + screenshot |
 | Generation       | Workers AI `@cf/moonshotai/kimi-k2.7-code` (vision) |
 | Storage          | DO SQLite (session) + KV (shareable `/view/{id}`) |
-| Frontend         | React + Vite, sandboxed `<iframe>`                |
-| Deploy           | Wrangler                                          |
+| Frontend         | Manifest V3 Chrome extension + React + Vite       |
+| Isolation        | Manifest sandbox page + nested `allow-scripts` iframe |
+| Deploy           | Wrangler backend + unpacked/packaged extension    |
 
 Fallback generation models if Kimi latency is too high: `@cf/zai/glm-5.2` or
 `@cf/qwen/qwen2.5-coder-32b-instruct`.
@@ -86,6 +90,8 @@ The frontend connects with `useAgent` from `agents/react`. With the installed
 const agent = useAgent({
   agent: "TransformerAgent",
   name: sessionId,
+  host: agentConnection.host,
+  protocol: agentConnection.protocol,
 });
 
 await agent.call("transform", [{ url, instruction }], {
@@ -110,17 +116,32 @@ The event behavior expected by `src/frontend/App.tsx` is:
 | `{ type: "done", id }` | Shows the shareable `/view/{id}` link |
 | `{ type: "error", msg }` | Stops the run and presents a retryable error |
 
-To test all modules together:
+To test all modules together, start the Worker backend:
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the URL Wrangler prints (normally `http://localhost:8787`), submit a URL and instruction,
-then verify the status updates, iframe output, and `/view/{id}` link. For frontend hot reload,
-run `npx wrangler dev` and `npm run dev:frontend` in separate terminals, then open
-`http://localhost:5173`; Vite proxies both `/agents` and `/view` to Wrangler.
+Build the extension in another terminal:
+
+```bash
+VITE_WORKER_ORIGIN=http://localhost:8787 npm run build
+```
+
+Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select
+`extension-dist/`. Open a normal website and click the extension action. The side panel reads
+the active tab URL; submitting a prompt replaces that tab with the full-page viewer. The
+viewer's edge rail expands on hover or keyboard focus for revisions and sharing.
+
+For a deployed backend, build with its origin instead:
+
+```bash
+VITE_WORKER_ORIGIN=https://<worker>.<subdomain>.workers.dev npm run build
+```
+
+`extension-dist/` is generated and ignored by Git. All extension source, including its
+manifest source and sandbox, lives under `src/frontend/`.
 
 ## Division of labour
 
@@ -129,7 +150,7 @@ run `npx wrangler dev` and `npm run dev:frontend` in separate terminals, then op
 | A      | `feature/agent`    | `src/agent` — TransformerAgent DO, orchestration, `wrangler.jsonc`, Worker entry |
 | B      | `feature/extract`  | `src/extract` — `extract(url, env)` static + SPA paths     |
 | C      | `feature/generate` | `src/generate` — `generate(content, instruction, env)` streaming + prompt |
-| D      | `feature/frontend` | `src/frontend` — React shell, iframe, sharing UI, demo       |
+| D      | `feature/frontend` | `src/frontend` — Chrome extension, sandboxed viewer, demo  |
 
 ## Workflow
 
@@ -147,7 +168,8 @@ git push -u origin feature/<your-role>
 
 ## The iframe security boundary (read this, Person D especially)
 
-Generated pages render in `<iframe srcDoc={html} sandbox="allow-scripts" />`.
-**Never add `allow-same-origin`** — keeping it off is what isolates generated JS from our
-app. The generator must therefore output a single self-contained HTML doc (inline
-`<style>`/`<script>`, no external CDNs/imports/fonts).
+Generated pages never execute in a privileged extension page. `viewer.html` sends generated
+HTML to the manifest-declared `sandbox.html` page using `postMessage`; that page renders it in
+`<iframe srcDoc={html} sandbox="allow-scripts" />`. **Never add `allow-same-origin`** or give
+the sandbox access to `chrome.*`. The generator must output one self-contained HTML document
+with inline styles and scripts and no external code imports.

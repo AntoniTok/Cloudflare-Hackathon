@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Internet Transformer",
+  "short_name": "Transformer",
+  "version": "0.1.0",
+  "description": "Turn the page you are viewing into a new interactive experience.",
+  "minimum_chrome_version": "116",
+  "permissions": ["sidePanel", "tabs", "storage"],
+  "host_permissions": ["http://localhost/*", "https://*.workers.dev/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Internet Transformer"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "sandbox": {
+    "pages": ["sandbox.html"]
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src http://localhost:* ws://localhost:* https://*.workers.dev wss://*.workers.dev;",
+    "sandbox": "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; child-src 'self' data: blob:; frame-src 'self' data: blob:; img-src https: http: data: blob:; media-src https: http: data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'none'; form-action 'none'; object-src 'none';"
+  }
+}

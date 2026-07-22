@@ -1,24 +1,22 @@
+import { resolve } from "node:path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+const frontendRoot = resolve(process.cwd(), "src/frontend");
+
 export default defineConfig({
+  base: "./",
   plugins: [react()],
-  root: ".",
-  publicDir: false,
+  root: frontendRoot,
+  publicDir: "static",
   build: {
-    outDir: "public",
+    outDir: resolve(process.cwd(), "extension-dist"),
     emptyOutDir: true,
-  },
-  server: {
-    proxy: {
-      "/agents": {
-        target: "http://localhost:8787",
-        changeOrigin: true,
-        ws: true,
-      },
-      "/view": {
-        target: "http://localhost:8787",
-        changeOrigin: true,
+    rollupOptions: {
+      input: {
+        viewer: resolve(frontendRoot, "viewer.html"),
+        sidepanel: resolve(frontendRoot, "sidepanel.html"),
+        sandbox: resolve(frontendRoot, "sandbox.html"),
       },
     },
   },

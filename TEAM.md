@@ -161,7 +161,7 @@ Consult developers.cloudflare.com/workers-ai for the AI binding, streaming, and 
 kimi-k2.7-code model page for the exact input schema and vision usage.
 ```
 
-## Person D — Frontend, /view route, demo
+## Person D — Chrome extension frontend and demo
 
 ```
 We're building "Internet Transformer" for a Cloudflare hackathon (team of 4). It takes a
@@ -169,21 +169,18 @@ URL + a creative instruction (e.g. "turn this restaurant site into a dating game
 generates a brand-new interactive webpage from the original site's content, rendered live in
 a sandboxed iframe and saved to a shareable /view/{id} URL. We do NOT edit the live site.
 
-Stack: Cloudflare Workers + Agents SDK + Workers AI + KV. React + Vite frontend served by
-the same Worker. Repo: github.com/AntoniTok/Cloudflare-Hackathon. Work on branch
-feature/frontend, PR into main.
+Stack: Cloudflare Workers + Agents SDK + Workers AI + KV backend. The frontend is a React +
+Vite Manifest V3 Chrome extension. Repo: github.com/AntoniTok/Cloudflare-Hackathon. Work on
+branch feature/frontend, PR into main.
 
-YOUR ROLE: frontend + view route + demo.
-  1. React shell: an input for URL + an input for the transformation instruction, and a
-     large result area. On submit, connect to the TransformerAgent via useAgent
-     (agents/react) and call its streaming transform() method with {url, instruction}.
-  2. Render results in <iframe srcDoc={html} sandbox="allow-scripts" />. Append incoming
-     {type:"chunk", html} events to build the page live. Show {type:"status"} messages as a
-     progress indicator. On {type:"done", id}, show a shareable link to /view/{id}. Handle
-     {type:"error"}. IMPORTANT: sandbox must be "allow-scripts" ONLY — do NOT add
-     allow-same-origin (that's the security boundary isolating generated JS from our app).
-  3. Worker route GET /view/{id}: already implemented on main (reads KV "PAGES").
-  4. Pre-generate and save TWO tested backup transformations; rehearse the live demo.
+YOUR ROLE: extension frontend + demo.
+  1. Chrome side panel: read the active tab URL and collect the transformation instruction.
+  2. Full-tab React viewer: call TransformerAgent through useAgent and show streamed status,
+     generated output, sharing, and prompt revisions in a hover-expand control rail.
+  3. Render generated code only through the manifest-declared sandbox page and its nested
+     iframe sandbox="allow-scripts". Never give generated code access to chrome.*.
+  4. Worker route GET /view/{id}: already implemented on main (reads KV "PAGES").
+  5. Pre-generate and save TWO tested backup transformations; rehearse the live demo.
 
 Call pattern (agents v0.2.35):
   agent.call("transform", [{url, instruction}], {onChunk, onDone, onError})
