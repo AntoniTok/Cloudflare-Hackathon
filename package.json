@@ -9,6 +9,7 @@
     "dev:extension": "vite build --watch",
     "deploy": "wrangler deploy",
     "build": "vite build",
+    "test": "node --experimental-strip-types --test src/generate/index.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,6 +19,7 @@
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@cloudflare/puppeteer": "^1.1.0",
     "@cloudflare/workers-types": "^5.20260722.1",
     "@types/chrome": "^0.2.2",
     "@types/react": "^19.2.17",
