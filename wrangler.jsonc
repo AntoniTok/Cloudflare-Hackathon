@@ -29,7 +29,7 @@
   // KV for shareable saved pages (Person A writes, Person D reads via /view/{id})
   // Create with: npx wrangler kv namespace create PAGES
   // then paste the id below.
-  "kv_namespaces": [{ "binding": "PAGES", "id": "REPLACE_WITH_KV_ID" }],
+  "kv_namespaces": [{ "binding": "PAGES", "id": "0c5ee79391b0456c918c9047c59124eb" }],
 
   // React frontend assets (Person D) — built by Vite into ./public
   "assets": {
