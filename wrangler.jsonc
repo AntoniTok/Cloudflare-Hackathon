@@ -36,6 +36,14 @@
     "directory": "./public"
   },
 
+  // Generation model for the DEPLOYED worker. Kimi k2.7-code (the code default in
+  // src/generate) is a reasoning model with 60-110s+ time-to-first-token on Workers
+  // AI even at reasoning_effort=low — too slow for a live demo. qwen2.5-coder is a
+  // fast coder model (~15-20s end to end, digits fixed). Override per-env as needed.
+  "vars": {
+    "GENERATION_MODEL": "@cf/qwen/qwen2.5-coder-32b-instruct"
+  },
+
   "observability": {
     "enabled": true
   }

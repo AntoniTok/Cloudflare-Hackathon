@@ -10,4 +10,9 @@ export interface Env {
   TransformerAgent: DurableObjectNamespace;
   /** KV for saved /view/{id} pages (Person A writes, Person D reads) */
   PAGES: KVNamespace;
+
+  /** Optional generation overrides (all have sensible code defaults). */
+  GENERATION_MODEL?: string;
+  GENERATION_REASONING_EFFORT?: string;
+  GENERATION_TIMEOUT_MS?: string;
 }
