@@ -1,29 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useAgent } from "agents/react";
-import type { AgentEvent, TransformRequest } from "../CONTRACTS";
+import type { AgentEvent } from "../CONTRACTS";
+import { agentConnection, createShareUrl, workerOrigin } from "./config";
 
-type Phase = "idle" | "transforming" | "complete" | "error";
-
-const presets: Array<TransformRequest & { label: string }> = [
-  {
-    label: "Docs dungeon",
-    url: "https://developers.cloudflare.com/workers/",
-    instruction:
-      "Turn this documentation into a dungeon crawler where each concept unlocks the next room.",
-  },
-  {
-    label: "Site dating game",
-    url: "https://www.cloudflare.com/",
-    instruction:
-      "Turn this website into a playful dating game where visitors match with the right product.",
-  },
-  {
-    label: "Article on trial",
-    url: "https://blog.cloudflare.com/",
-    instruction:
-      "Put this page on trial. Present its main claims as evidence and let the visitor deliver a verdict.",
-  },
-];
+type Phase = "connecting" | "transforming" | "complete" | "error";
 
 function isAgentEvent(value: unknown): value is AgentEvent {
   if (!value || typeof value !== "object" || !("type" in value)) return false;
@@ -42,39 +22,66 @@ function isAgentEvent(value: unknown): value is AgentEvent {
   }
 }
 
-function normalizeUrl(value: string): string {
-  const candidate = /^https?:\/\//i.test(value.trim())
-    ? value.trim()
-    : `https://${value.trim()}`;
-  const parsed = new URL(candidate);
+function getViewerInput() {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    url: params.get("url") ?? "",
+    instruction: params.get("instruction") ?? "",
+  };
+}
 
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("Enter an http or https URL.");
+type InterfaceIconName = "back" | "edit" | "share" | "collapse";
+
+function InterfaceIcon({ name }: { name: InterfaceIconName }) {
+  let drawing: ReactNode;
+
+  switch (name) {
+    case "edit":
+      drawing = <path d="m5 19 3.7-.8L19 7.9 16.1 5 5.8 15.3 5 19Zm9.6-12.5 2.9 2.9" />;
+      break;
+    case "share":
+      drawing = <path d="M14 5h5v5M19 5l-8 8M18 13v6H5V6h6" />;
+      break;
+    case "collapse":
+      drawing = <path d="m14 6-6 6 6 6" />;
+      break;
+    case "back":
+      drawing = <path d="M19 12H5m6-6-6 6 6 6" />;
+      break;
   }
 
-  return parsed.toString();
+  return (
+    <svg className="interface-icon" viewBox="0 0 24 24" aria-hidden="true">
+      {drawing}
+    </svg>
+  );
 }
 
 export default function App() {
+  const initialInput = useRef(getViewerInput());
   const [sessionName] = useState(() => crypto.randomUUID());
-  const [url, setUrl] = useState("");
-  const [instruction, setInstruction] = useState("");
-  const [phase, setPhase] = useState<Phase>("idle");
-  const [status, setStatus] = useState("Waiting for a page to transform");
+  const [url] = useState(initialInput.current.url);
+  const [instruction, setInstruction] = useState(initialInput.current.instruction);
+  const [phase, setPhase] = useState<Phase>("connecting");
+  const [status, setStatus] = useState("Connecting to the transformer");
   const [error, setError] = useState("");
-  const [html, setHtml] = useState("");
   const [previewHtml, setPreviewHtml] = useState("");
   const [pageId, setPageId] = useState("");
   const [isRunning, setIsRunning] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const sandboxFrame = useRef<HTMLIFrameElement>(null);
+  const [sandboxReady, setSandboxReady] = useState(false);
+  const autoStarted = useRef(false);
   const activeRequestId = useRef(0);
   const terminalRequestId = useRef<number | null>(null);
   const requestPending = useRef(false);
   const requestTimeout = useRef<number | null>(null);
-  const htmlRef = useRef("");
+  const streamHtml = useRef("");
+  const showLiveStream = useRef(true);
 
   const clearRequestTimeout = () => {
     if (requestTimeout.current !== null) {
@@ -98,54 +105,28 @@ export default function App() {
   const agent = useAgent({
     agent: "TransformerAgent",
     name: sessionName,
+    host: agentConnection.host,
+    protocol: agentConnection.protocol,
     onOpen: () => setIsConnected(true),
     onClose: () => {
       setIsConnected(false);
       if (requestPending.current) {
         failRequest(
-          "The agent connection was interrupted. Please try the transformation again.",
+          "The connection was interrupted. Check the Worker URL and try again.",
           activeRequestId.current,
         );
       }
     },
   });
 
-  useEffect(() => {
-    htmlRef.current = html;
+  const runTransformation = async (prompt: string) => {
+    if (requestPending.current || !url) return;
 
-    if (!html) setPreviewHtml("");
-    if (phase === "complete") setPreviewHtml(html);
-  }, [html, phase]);
-
-  useEffect(() => {
-    if (!isRunning) return;
-
-    const interval = window.setInterval(() => {
-      setPreviewHtml(htmlRef.current);
-    }, 500);
-
-    return () => window.clearInterval(interval);
-  }, [isRunning]);
-
-  useEffect(() => () => clearRequestTimeout(), []);
-
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!instruction.trim()) {
+    if (!prompt.trim()) {
       setPhase("error");
-      setStatus("Transformation needs a brief");
-      setError("Describe how you want the page to be transformed.");
-      return;
-    }
-
-    let normalizedUrl: string;
-    try {
-      normalizedUrl = normalizeUrl(url);
-    } catch {
-      setPhase("error");
-      setStatus("Transformation needs a source");
-      setError("Enter a valid website URL.");
+      setStatus("A prompt is required");
+      setError("Describe how you want this page to change.");
+      setSidebarOpen(true);
       return;
     }
 
@@ -153,14 +134,13 @@ export default function App() {
     activeRequestId.current = requestId;
     terminalRequestId.current = null;
     requestPending.current = true;
+    streamHtml.current = "";
+    showLiveStream.current = !previewHtml;
     setIsRunning(true);
-    setUrl(normalizedUrl);
+    setInstruction(prompt.trim());
     setPhase("transforming");
-    setStatus("Sending the page to the transformer");
+    setStatus(previewHtml ? "Building a new version" : "Opening the source page");
     setError("");
-    setHtml("");
-    setPreviewHtml("");
-    setPageId("");
     setCopyState("idle");
     clearRequestTimeout();
     requestTimeout.current = window.setTimeout(() => {
@@ -174,10 +154,7 @@ export default function App() {
       if (requestId !== activeRequestId.current) return;
 
       if (!isAgentEvent(value)) {
-        failRequest(
-          "The agent returned an event the interface could not understand.",
-          requestId,
-        );
+        failRequest("The agent returned an event we could not understand.", requestId);
         return;
       }
 
@@ -186,10 +163,11 @@ export default function App() {
           setStatus(value.msg);
           break;
         case "chunk":
-          setHtml((current) => current + value.html);
+          streamHtml.current += value.html;
           break;
         case "done":
           terminalRequestId.current = requestId;
+          setPreviewHtml(streamHtml.current);
           setPageId(value.id);
           setStatus("Transformation complete");
           setPhase("complete");
@@ -199,14 +177,13 @@ export default function App() {
           setPhase("error");
           setStatus("Transformation stopped");
           setError(value.msg);
+          setSidebarOpen(true);
           break;
       }
     };
 
     try {
-      await agent.call("transform", [
-        { url: normalizedUrl, instruction: instruction.trim() },
-      ], {
+      await agent.call("transform", [{ url, instruction: prompt.trim() }], {
         onChunk: handleEvent,
         onDone: () => {
           if (requestId !== activeRequestId.current) return;
@@ -231,230 +208,262 @@ export default function App() {
     }
   };
 
-  const selectPreset = (preset: (typeof presets)[number]) => {
-    if (isRunning) return;
-    setUrl(preset.url);
-    setInstruction(preset.instruction);
-    setError("");
+  useEffect(() => {
+    if (autoStarted.current) return;
+    autoStarted.current = true;
+    if (!url || !instruction) {
+      setPhase("error");
+      setStatus("Missing transformation details");
+      setError("Open Internet Transformer from its side panel to start a transformation.");
+      setSidebarOpen(true);
+      return;
+    }
+    void runTransformation(instruction);
+  }, [instruction, url]);
+
+  useEffect(() => {
+    if (!isRunning || !showLiveStream.current) return;
+
+    const interval = window.setInterval(() => {
+      if (streamHtml.current) setPreviewHtml(streamHtml.current);
+    }, 500);
+
+    return () => window.clearInterval(interval);
+  }, [isRunning]);
+
+  useEffect(() => {
+    if (!sandboxReady || !previewHtml || !sandboxFrame.current?.contentWindow) return;
+    sandboxFrame.current.contentWindow.postMessage(
+      { type: "internet-transformer:render", html: previewHtml },
+      "*",
+    );
+  }, [previewHtml, sandboxReady]);
+
+  useEffect(() => () => clearRequestTimeout(), []);
+
+  const submitRevision = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void runTransformation(instruction);
   };
 
-  const reset = () => {
-    if (isRunning) return;
-    setPhase("idle");
-    setStatus("Waiting for a page to transform");
-    setError("");
-    setHtml("");
-    setPreviewHtml("");
-    setPageId("");
-    setCopyState("idle");
+  const returnToSource = () => {
+    if (/^https?:\/\//i.test(url)) window.location.assign(url);
   };
 
-  const sharePath = pageId ? `/view/${encodeURIComponent(pageId)}` : "";
+  const shareUrl = pageId ? createShareUrl(pageId) : "";
   const copyShareLink = async () => {
-    if (!sharePath) return;
+    if (!shareUrl) return;
 
     try {
-      await navigator.clipboard.writeText(
-        new URL(sharePath, window.location.origin).toString(),
-      );
+      await navigator.clipboard.writeText(shareUrl);
       setCopyState("copied");
     } catch {
       setCopyState("failed");
     }
   };
 
-  const hasPreview = html.length > 0 && previewHtml.length > 0;
-
   return (
-    <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="/" aria-label="Internet Transformer home">
-          <span className="brand-mark" aria-hidden="true">
-            IT
-          </span>
-          <span>Internet Transformer</span>
-        </a>
-        <div className="connection" data-connected={isConnected}>
-          <span className="connection-dot" aria-hidden="true" />
-          {isConnected ? "Agent online" : "Connecting"}
+    <main className="viewer-app">
+      <header className="viewer-bar">
+        <div className="viewer-brand" aria-label="Internet Transformer">
+          <span className="brand-mark" aria-hidden="true"><i /><i /></span>
+          <strong>IT</strong>
+        </div>
+        <button className="back-source" type="button" onClick={returnToSource}>
+          <InterfaceIcon name="back" />
+          <strong>Source</strong>
+        </button>
+        <div className="viewer-address">
+          <span>Viewing</span>
+          <p>{url.replace(/^https?:\/\//, "")}</p>
+        </div>
+        <div className="viewer-connection" data-connected={isConnected}>
+          <i />
+          <span>{isConnected ? "Agent live" : "Connecting"}</span>
         </div>
       </header>
 
-      <section className="intro" aria-labelledby="page-title">
-        <p className="eyebrow">Software has no final form</p>
-        <h1 id="page-title">
-          Give any page a
-          <span> different reality.</span>
-        </h1>
-        <p className="intro-copy">
-          Enter a URL, describe the experience you want, and watch the original
-          information reassemble itself into something new.
-        </p>
-      </section>
-
-      <section className="workspace">
-        <aside className="control-panel">
-          <div className="panel-heading">
-            <span>01</span>
-            <div>
-              <p className="panel-kicker">Transformation brief</p>
-              <h2>Choose the raw material</h2>
-            </div>
+      <section className="viewer-workspace">
+        <aside
+          className="viewer-sidebar"
+          data-open={sidebarOpen}
+          aria-label="Transformation controls"
+        >
+          <div className="viewer-rail">
+            <button
+              className="rail-brand"
+              type="button"
+              onClick={() => setSidebarOpen((open) => !open)}
+              aria-expanded={sidebarOpen}
+              aria-controls="viewer-sidebar-panel"
+              title="Transformation controls"
+            >
+              <span className="brand-mark" aria-hidden="true"><i /><i /></span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Edit transformation"
+              title="Edit transformation"
+            >
+              <InterfaceIcon name="edit" />
+            </button>
+            <button
+              type="button"
+              onClick={returnToSource}
+              aria-label="Return to original page"
+              title="Original page"
+            >
+              <InterfaceIcon name="back" />
+            </button>
+            <div className="rail-fill" />
+            {shareUrl && (
+              <a
+                href={shareUrl}
+                target="_blank"
+                rel="noreferrer"
+                aria-label="Open shared page"
+                title="Open shared page"
+              >
+                <InterfaceIcon name="share" />
+              </a>
+            )}
+            <span className="phase-dot" data-phase={phase} title={status} />
           </div>
 
-          <form onSubmit={submit}>
-            <label htmlFor="source-url">Website URL</label>
-            <div className="url-field">
-              <span aria-hidden="true">//</span>
-              <input
-                id="source-url"
-                name="url"
-                type="text"
-                inputMode="url"
-                autoComplete="url"
-                placeholder="example.com"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                disabled={isRunning}
-                maxLength={2048}
-                required
-              />
-            </div>
-
-            <label htmlFor="instruction">Creative instruction</label>
-            <textarea
-              id="instruction"
-              name="instruction"
-              placeholder="Turn this documentation into a dungeon..."
-              value={instruction}
-              onChange={(event) => setInstruction(event.target.value)}
-              disabled={isRunning}
-              maxLength={1000}
-              rows={6}
-              required
-            />
-
-            <div className="presets" aria-label="Example transformations">
-              <span>Try a direction</span>
-              <div className="preset-list">
-                {presets.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => selectPreset(preset)}
-                    disabled={isRunning}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+          <div className="viewer-sidebar-panel" id="viewer-sidebar-panel">
+            <div className="viewer-sidebar-heading">
+              <div>
+                <span>Control surface</span>
+                <h1>Reframe the page</h1>
               </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                aria-label="Collapse controls"
+              >
+                <InterfaceIcon name="collapse" />
+              </button>
             </div>
 
-            <button className="transform-button" type="submit" disabled={isRunning}>
-              <span>{isRunning ? "Transforming" : "Transform this page"}</span>
-              <span className="button-arrow" aria-hidden="true">
-                {isRunning ? "···" : "↗"}
-              </span>
+            <div className="source-card">
+              <span>Source material</span>
+              <strong>{url.replace(/^https?:\/\//, "")}</strong>
+            </div>
+
+            <form className="edit-form" onSubmit={submitRevision}>
+              <label htmlFor="viewer-prompt">New direction</label>
+              <textarea
+                id="viewer-prompt"
+                value={instruction}
+                onChange={(event) => setInstruction(event.target.value)}
+                disabled={isRunning}
+                maxLength={1000}
+                rows={9}
+              />
+              <button type="submit" disabled={isRunning}>
+                <span>{isRunning ? "Transforming..." : "Build this version"}</span>
+                <b aria-hidden="true"><InterfaceIcon name="share" /></b>
+              </button>
+            </form>
+
+            <div className="transform-status" data-phase={phase} aria-live="polite">
+              <div>
+                <i />
+                <strong>{status}</strong>
+              </div>
+              {error && <p>{error}</p>}
+            </div>
+
+            {shareUrl && (
+              <div className="viewer-share-card">
+                <span>Published version</span>
+                <strong>{shareUrl}</strong>
+                <div>
+                  <button type="button" onClick={copyShareLink}>
+                    {copyState === "copied"
+                      ? "Copied"
+                      : copyState === "failed"
+                        ? "Try again"
+                        : "Copy link"}
+                  </button>
+                  <a href={shareUrl} target="_blank" rel="noreferrer">
+                    Open
+                  </a>
+                </div>
+              </div>
+            )}
+
+            <div className="worker-note">
+              <span>Agent route</span>
+              <strong>{new URL(workerOrigin).host}</strong>
+            </div>
+
+            <button className="return-button" type="button" onClick={returnToSource}>
+              <InterfaceIcon name="back" /> Return to source
             </button>
-          </form>
-
-          <div className="status-block" data-phase={phase} aria-live="polite">
-            <span className="status-index" aria-hidden="true">
-              {phase === "complete" ? "✓" : phase === "error" ? "!" : "02"}
-            </span>
-            <div>
-              <p>{status}</p>
-              {error && <span>{error}</span>}
-            </div>
           </div>
         </aside>
 
-        <section className="result-panel" aria-labelledby="result-title">
-          <div className="result-heading">
-            <div>
-              <p className="panel-kicker">Live output</p>
-              <h2 id="result-title">The transformed internet</h2>
-            </div>
-            <span className="phase-label" data-phase={phase}>
-              {phase}
-            </span>
-          </div>
+        <div className="generated-viewport">
+          <iframe
+            ref={sandboxFrame}
+            className="sandbox-frame"
+            title="Sandboxed transformed page"
+            src="sandbox.html"
+            onLoad={() => setSandboxReady(true)}
+          />
 
-          <div className="browser-frame">
-            <div className="browser-bar" aria-hidden="true">
-              <div className="browser-dots">
-                <span />
-                <span />
+          {!previewHtml && phase !== "error" && (
+            <div className="viewer-loading">
+              <div className="transform-stage" aria-hidden="true">
+                <span className="stage-source">SOURCE</span>
+                <div className="stage-lens"><i /><i /></div>
+                <span className="stage-output">NEW RULES</span>
+              </div>
+              <span className="loading-kicker">Transformation in progress</span>
+              <h2>Rewriting the interface</h2>
+              <p>{status}</p>
+              <div className="progress-track" aria-hidden="true">
                 <span />
               </div>
-              <div className="browser-address">
-                {pageId ? `internet-transformer/view/${pageId.slice(0, 8)}...` : "new-experience.html"}
-              </div>
-              <span className="browser-spark">✦</span>
-            </div>
-
-            <div className="preview-stage">
-              {hasPreview ? (
-                <iframe
-                  title="Generated interactive webpage"
-                  srcDoc={previewHtml}
-                  sandbox="allow-scripts"
-                  referrerPolicy="no-referrer"
-                />
-              ) : (
-                <div className="empty-preview">
-                  <div className="orbit" aria-hidden="true">
-                    <span>WWW</span>
-                  </div>
-                  <p>{isRunning ? "The new interface is taking shape" : "No fixed form"}</p>
-                  <span>
-                    {isRunning
-                      ? "The first generated fragments will appear here."
-                      : "Your transformed page will materialize in this frame."}
-                  </span>
-                </div>
-              )}
-
-              {isRunning && hasPreview && (
-                <div className="building-indicator" aria-live="polite">
-                  <span />
-                  Building live
-                </div>
-              )}
-            </div>
-          </div>
-
-          {pageId && (
-            <div className="share-bar">
-              <div>
-                <span>Shareable for 24 hours</span>
-                <strong>{sharePath}</strong>
-              </div>
-              <button type="button" onClick={copyShareLink}>
-                {copyState === "copied"
-                  ? "Copied"
-                  : copyState === "failed"
-                    ? "Copy failed"
-                    : "Copy link"}
-              </button>
-              <a href={sharePath} target="_blank" rel="noreferrer">
-                Open page ↗
-              </a>
             </div>
           )}
 
-          {(phase === "complete" || phase === "error") && (
-            <button className="reset-button" type="button" onClick={reset}>
-              Start another transformation
+          {phase === "error" && !previewHtml && (
+            <div className="viewer-error">
+              <span>ERR</span>
+              <h2>Transformation failed</h2>
+              <p>{error}</p>
+              <button type="button" onClick={() => setSidebarOpen(true)}>
+                Edit the prompt
+              </button>
+            </div>
+          )}
+
+          {phase === "error" && previewHtml && (
+            <button className="error-toast" type="button" onClick={() => setSidebarOpen(true)}>
+              <span>!</span> Revision failed. Open controls to retry.
             </button>
           )}
-        </section>
-      </section>
 
-      <footer>
-        <span>Built at the edge</span>
-        <span>Cloudflare Workers · Agents · AI</span>
-      </footer>
+          {isRunning && previewHtml && (
+            <div className="floating-status" aria-live="polite">
+              <span /> {status}
+            </div>
+          )}
+
+          <button
+            className="touch-edit-button"
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            aria-expanded={sidebarOpen}
+            aria-controls="viewer-sidebar-panel"
+          >
+            <InterfaceIcon name="edit" /> Edit
+          </button>
+        </div>
+      </section>
     </main>
   );
 }

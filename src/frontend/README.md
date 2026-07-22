@@ -1,31 +1,53 @@
-# Frontend + /view — Person D (branch: feature/frontend)
+# Chrome extension frontend
 
-## Build here
+Everything in this directory is source for the Manifest V3 extension. Vite writes the
+loadable package to `extension-dist/`; do not edit generated files there.
 
-1. **React shell** (`src/frontend/`): inputs for URL + transformation instruction, a large
-   result area. On submit, connect to `TransformerAgent` via `useAgent` (`agents/react`) and
-   call its streaming `transform()` method with `{ url, instruction }` (`TransformRequest`).
+## Surfaces
 
-2. **Live render**: `<iframe srcDoc={html} sandbox="allow-scripts" />`. Append incoming
-   `{type:"chunk", html}` events to build the page live. Show `{type:"status"}` as progress.
-   On `{type:"done", id}` show a shareable link to `/view/{id}`. Handle `{type:"error"}`.
+| Source | Purpose |
+| ------ | ------- |
+| `SidePanel.tsx` | Reads the active Chrome tab, accepts a prompt, and opens the viewer |
+| `App.tsx` | Full-tab viewer, Agent stream handling, revision sidebar, and sharing |
+| `sandbox.html` | Unique-origin renderer and message bridge for generated HTML |
+| `static/manifest.json` | Manifest V3 permissions, side panel, CSP, and sandbox declaration |
+| `static/background.js` | Opens the side panel when the toolbar action is clicked |
 
-   > IMPORTANT: sandbox must be `"allow-scripts"` ONLY. Do NOT add `allow-same-origin` —
-   > that isolation is the security boundary between generated JS and our app.
+The viewer connects to the Cloudflare `TransformerAgent`; the extension never imports the
+extractor or generator directly. `config.ts` reads `VITE_WORKER_ORIGIN` and derives the
+WebSocket host and protocol used by `useAgent`.
 
-3. **/view/{id} route** (`src/view/`): read saved HTML from KV namespace `PAGES` and serve
-   as full `text/html`. (A stub already exists in `src/agent/index.ts` — coordinate with
-   Person A on who owns the final handler.)
+## Local development
 
-4. **Demo**: pre-generate and save TWO tested backup transformations; rehearse the live demo.
+Start the backend:
 
-## Connects to
+```bash
+npm run dev
+```
 
-- Consumes the `AgentEvent` stream from Person A's agent (types in `../CONTRACTS.ts`).
-- HTML rendered is produced by Person C via Person A.
-- Build against a mock agent emitting fake `status`/`chunk`/`done` events until A is ready.
+Build the extension:
 
-## Docs
+```bash
+VITE_WORKER_ORIGIN=http://localhost:8787 npm run build
+```
 
-- Client SDK (`useAgent`, calling streaming callable methods): developers.cloudflare.com/agents
-- Serving static assets from a Worker (Vite build → `./public`, see `wrangler.jsonc` assets).
+Then open `chrome://extensions`, enable Developer mode, click **Load unpacked**, and select
+`extension-dist/`. After source changes, rebuild and click the extension's reload button.
+Use `npm run dev:extension` to rebuild continuously.
+
+For a deployed Worker:
+
+```bash
+VITE_WORKER_ORIGIN=https://<worker>.<subdomain>.workers.dev npm run build
+```
+
+The manifest currently permits localhost and `*.workers.dev`. Add a custom production origin
+to both `host_permissions` and `content_security_policy.extension_pages` if the Worker moves
+to another domain.
+
+## Security boundary
+
+The normal extension pages retain Chrome APIs, so generated code must never be inserted into
+their DOM. The viewer posts HTML to the manifest sandbox page, which has a unique origin and
+no `chrome.*` access. The nested generated-page iframe must remain
+`sandbox="allow-scripts"` without `allow-same-origin`.

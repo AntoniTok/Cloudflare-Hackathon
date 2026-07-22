@@ -5,9 +5,9 @@
   "description": "Turn any webpage into a new interactive experience on demand.",
   "type": "module",
   "scripts": {
-    "dev": "npm run build && wrangler dev",
-    "dev:frontend": "vite",
-    "deploy": "npm run build && wrangler deploy",
+    "dev": "wrangler dev",
+    "dev:extension": "vite build --watch",
+    "deploy": "wrangler deploy",
     "build": "vite build",
     "typecheck": "tsc --noEmit"
   },
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20260722.1",
+    "@types/chrome": "^0.2.2",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
