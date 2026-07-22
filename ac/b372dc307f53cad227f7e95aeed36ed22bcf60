@@ -1,0 +1,21 @@
+package-lock.json
+  s_94bd0fd9b38ecd::t_106ce3561838df 15,122-137,1349-1494,1521-1527,1540-1561,1590-1599,1747-1890,1935-1969,2022-2041,2133-2142,2160-2174,2194-2200,2236-2245,2343-2398,2414-2423,2503-2523,2530-2536,2553-2562,2701-2731,2788-2815,2832-2852,2859-2868,2887-2896,3000-3009,3165-3174,3217-3250,3295-3301,3338-3347,3361-3398,3453-3462,3696-3747,3757-3768,3814-3868,3899,3945-3955,3966-3973,4161-4171
+package.json
+  s_94bd0fd9b38ecd::t_d55040ec4e59a0 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "acb372dc307f53cad227f7e95aeed36ed22bcf60",
+  "prompts": {},
+  "sessions": {
+    "s_94bd0fd9b38ecd": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0753adc9affe44ExvxbfOJVFUH",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "robertchitic <robertchitic@cloudflare.com>"
+    }
+  }
+}
