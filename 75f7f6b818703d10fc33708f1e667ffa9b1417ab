@@ -1,0 +1,21 @@
+package-lock.json
+  s_4cb944f67aa2d2::t_73cdfbbc73d5f9 1-3326
+package.json
+  s_4cb944f67aa2d2::t_e8452fd4815dfd 14-15,18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "75f7f6b818703d10fc33708f1e667ffa9b1417ab",
+  "prompts": {},
+  "sessions": {
+    "s_4cb944f67aa2d2": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0755968b9ffeMYkjTCYs5IHQ5T",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Antoni T <atokarski@cloudflare.com>"
+    }
+  }
+}
