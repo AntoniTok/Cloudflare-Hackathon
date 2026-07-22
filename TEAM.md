@@ -46,11 +46,9 @@ string you `yield` is streamed to the client as a chunk. Model: `@cf/moonshotai/
 
 ```ts
 agent.call("transform", [{ url, instruction }], {
-  stream: {
-    onChunk: (e) => { /* e is an AgentEvent: status | chunk | done | error */ },
-    onDone:  () => {},
-    onError: (msg) => {},
-  },
+  onChunk: (e) => { /* e is an AgentEvent: status | chunk | done | error */ },
+  onDone:  () => {},
+  onError: (msg) => {},
 });
 ```
 
@@ -188,7 +186,7 @@ YOUR ROLE: frontend + view route + demo.
   4. Pre-generate and save TWO tested backup transformations; rehearse the live demo.
 
 Call pattern (agents v0.2.35):
-  agent.call("transform", [{url, instruction}], {stream:{onChunk, onDone, onError}})
+  agent.call("transform", [{url, instruction}], {onChunk, onDone, onError})
 onChunk receives the full AgentEvent object — switch on e.type.
 
 CONNECTS TO: You consume the AgentEvent stream from Person A's TransformerAgent (types in
