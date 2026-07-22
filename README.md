@@ -53,6 +53,75 @@ without telling the team.
 - `AgentEvent` — WebSocket events (A → D)
 - `TransformRequest` — `{ url, instruction }` (D → A)
 
+## Connecting backend work to the frontend
+
+The frontend does not import the extraction or generation modules directly. Integration flows
+through `TransformerAgent`, so Persons B and C only need to keep their exported functions and
+the types in [`src/CONTRACTS.ts`](src/CONTRACTS.ts) unchanged:
+
+```text
+extract(url, env) -> ExtractedContent
+                              |
+                              v
+generate(content, instruction, env) -> AsyncIterable<string>
+                              |
+                              v
+TransformerAgent -> AgentEvent stream -> React frontend
+```
+
+- **Person B:** replace the mock in `src/extract/index.ts`. Return `ExtractedContent`; do not
+  send frontend events.
+- **Person C:** replace the mock in `src/generate/index.ts`. Yield HTML strings in order; the
+  agent wraps each string as `{ type: "chunk", html }`.
+- **Person A:** keep `transform` callable and emit the exact `AgentEvent` union. Send
+  `{ type: "done", id }` only after the complete HTML has been saved to `PAGES`, then end the
+  stream.
+- **Person D:** no changes should be needed when B or C lands if the contracts remain stable.
+
+The frontend connects with `useAgent` from `agents/react`. With the installed
+`agents@0.2.35`, streaming callbacks are passed directly as the third argument to
+`agent.call` (not nested under a `stream` property):
+
+```tsx
+const agent = useAgent({
+  agent: "TransformerAgent",
+  name: sessionId,
+});
+
+await agent.call("transform", [{ url, instruction }], {
+  onChunk: (value) => {
+    // value is one full AgentEvent object; validate it and switch on value.type.
+  },
+  onDone: () => {
+    // Transport stream ended. The share id comes from the AgentEvent above.
+  },
+  onError: (message) => {
+    // WebSocket/RPC error. Domain errors arrive as { type: "error", msg }.
+  },
+});
+```
+
+The event behavior expected by `src/frontend/App.tsx` is:
+
+| Event | Frontend behavior |
+| ----- | ----------------- |
+| `{ type: "status", msg }` | Updates the progress message |
+| `{ type: "chunk", html }` | Appends HTML to the sandboxed live preview |
+| `{ type: "done", id }` | Shows the shareable `/view/{id}` link |
+| `{ type: "error", msg }` | Stops the run and presents a retryable error |
+
+To test all modules together:
+
+```bash
+npm install
+npm run dev
+```
+
+Open the URL Wrangler prints (normally `http://localhost:8787`), submit a URL and instruction,
+then verify the status updates, iframe output, and `/view/{id}` link. For frontend hot reload,
+run `npx wrangler dev` and `npm run dev:frontend` in separate terminals, then open
+`http://localhost:5173`; Vite proxies both `/agents` and `/view` to Wrangler.
+
 ## Division of labour
 
 | Person | Branch             | Owns                                                        |
@@ -60,7 +129,7 @@ without telling the team.
 | A      | `feature/agent`    | `src/agent` — TransformerAgent DO, orchestration, `wrangler.jsonc`, Worker entry |
 | B      | `feature/extract`  | `src/extract` — `extract(url, env)` static + SPA paths     |
 | C      | `feature/generate` | `src/generate` — `generate(content, instruction, env)` streaming + prompt |
-| D      | `feature/frontend` | `src/frontend` + `src/view` — React shell, iframe, `/view/{id}`, demo |
+| D      | `feature/frontend` | `src/frontend` — React shell, iframe, sharing UI, demo       |
 
 ## Workflow
 
