@@ -1,0 +1,42 @@
+{
+  // Internet Transformer — Cloudflare Worker config.
+  // Person A owns this file. Coordinate binding names with the team:
+  //   AI      → Workers AI (Person C)
+  //   BROWSER → Browser Rendering (Person B)
+  //   PAGES   → KV namespace for saved /view/{id} pages (Person A + D)
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "internet-transformer",
+  "main": "src/agent/index.ts",
+  "compatibility_date": "2025-01-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Workers AI (generation — Person C)
+  "ai": {
+    "binding": "AI"
+  },
+
+  // Browser Rendering (SPA extraction fallback — Person B)
+  "browser": {
+    "binding": "BROWSER"
+  },
+
+  // Durable Object for the Agent (Person A)
+  "durable_objects": {
+    "bindings": [{ "name": "TransformerAgent", "class_name": "TransformerAgent" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["TransformerAgent"] }],
+
+  // KV for shareable saved pages (Person A writes, Person D reads via /view/{id})
+  // Create with: npx wrangler kv namespace create PAGES
+  // then paste the id below.
+  "kv_namespaces": [{ "binding": "PAGES", "id": "REPLACE_WITH_KV_ID" }],
+
+  // React frontend assets (Person D) — built by Vite into ./public
+  "assets": {
+    "directory": "./public"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}
