@@ -1,0 +1,25 @@
+package-lock.json
+  s_94d51decb1dea7::t_d501c1c39cbabd 12-14,18-20,22,248-259,271-281,1332-1360,1390-1682,1709-1719,1732-1751,1761-1786,2140-2146,2762-3034,3282-3288,3310-3357,3439-3450,3460-3493,3516-3521,3724-3733,3903-3980
+public/assets/index-APgWVrT-.css
+  s_94d51decb1dea7::t_c9f83c858a07f4 1
+public/assets/index-Cxah5inp.js
+  s_94d51decb1dea7::t_01ea1a070df840 1-30
+public/index.html
+  s_94d51decb1dea7::t_cebfeb93a8fc96 7-8,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3ab8aa024fb92c4e1740778bce28f6cdaf2a7875",
+  "prompts": {},
+  "sessions": {
+    "s_94d51decb1dea7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0754279d4ffe01TL2smvw5WCfR",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "ayeung <ayeung@cloudflare.com>"
+    }
+  }
+}
