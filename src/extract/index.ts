@@ -9,10 +9,10 @@ const MAX_IMAGES = 30;
 const MAX_LINKS = 80;
 const MAX_HTML_BYTES = 5_000_000;
 // The Agent enforces a 20s extraction deadline, so the fallback must stay inside it.
-const STATIC_TIMEOUT_MS = 6_000;
-const BROWSER_LAUNCH_TIMEOUT_MS = 4_000;
-const BROWSER_RENDER_TIMEOUT_MS = 8_000;
-const BROWSER_CLOSE_TIMEOUT_MS = 1_000;
+const STATIC_TIMEOUT_MS = 4_000;
+const BROWSER_LAUNCH_TIMEOUT_MS = 8_000;
+const BROWSER_RENDER_TIMEOUT_MS = 5_500;
+const BROWSER_CLOSE_TIMEOUT_MS = 500;
 
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
@@ -28,21 +28,29 @@ type TextCollector = {
 
 export async function extract(url: string, env: Env): Promise<ExtractedContent> {
   const target = normalizeUrl(url);
-  const staticContent = await extractStatic(target);
+  let staticError: unknown;
 
-  if (
-    staticContent.text.length >= THIN_TEXT_LENGTH &&
-    !looksLikeBotBlock(staticContent)
-  ) {
-    return { url: target.href, ...staticContent };
+  try {
+    const staticContent = await extractStatic(target);
+    if (
+      staticContent.text.length >= THIN_TEXT_LENGTH &&
+      !looksLikeBotBlock(staticContent)
+    ) {
+      return { url: target.href, ...staticContent };
+    }
+  } catch (error) {
+    staticError = error;
   }
 
   try {
     const renderedContent = await extractRendered(target, env);
     return { url: target.href, ...renderedContent };
   } catch (error) {
+    const staticFailure = staticError
+      ? ` Static extraction also failed: ${errorMessage(staticError)}.`
+      : "";
     throw new Error(
-      `Could not extract ${target.href} with Browser Rendering: ${errorMessage(error)}`,
+      `Could not extract ${target.href}.${staticFailure} Browser Rendering failed: ${errorMessage(error)}`,
     );
   }
 }
@@ -179,12 +187,20 @@ async function parseHtml(response: Response, baseUrl: URL): Promise<PageContent>
   const imageSet = new Set<string>();
   const links: ExtractedContent["links"] = [];
   let metaTitle = "";
+  let documentBaseUrl = baseUrl;
 
   const removeHandler: HTMLRewriterElementContentHandlers = {
     element(element) {
       element.remove();
     },
   };
+  const cleanedResponse = new HTMLRewriter()
+    .on("script", removeHandler)
+    .on("style", removeHandler)
+    .on("noscript", removeHandler)
+    .on("template", removeHandler)
+    .on("svg", removeHandler)
+    .transform(response);
 
   const imageHandler: HTMLRewriterElementContentHandlers = {
     element(element) {
@@ -196,26 +212,27 @@ async function parseHtml(response: Response, baseUrl: URL): Promise<PageContent>
           element.getAttribute("data-lazy-src"),
           element.getAttribute("data-original"),
         ],
-        baseUrl,
+        documentBaseUrl,
         images,
         imageSet,
       );
     },
   };
 
-  const linkHandler = createLinkHandler(baseUrl, links);
+  const linkHandler = createLinkHandler(() => documentBaseUrl, links);
   const rewriter = new HTMLRewriter()
-    .on("script", removeHandler)
-    .on("style", removeHandler)
-    .on("noscript", removeHandler)
-    .on("template", removeHandler)
-    .on("svg", removeHandler)
     .on("title", title.handler)
     .on("h1", heading.handler)
     .on("body", body.handler)
     .on("main", main.handler)
     .on('[role="main"]', roleMain.handler)
     .on("article", article.handler)
+    .on("base[href]", {
+      element(element) {
+        const resolved = resolveHttpUrl(element.getAttribute("href"), baseUrl);
+        if (resolved) documentBaseUrl = new URL(resolved);
+      },
+    })
     .on("img", imageHandler)
     .on("a", linkHandler.handler)
     .on('meta[property="og:title"]', {
@@ -232,14 +249,14 @@ async function parseHtml(response: Response, baseUrl: URL): Promise<PageContent>
       element(element) {
         addImageCandidates(
           [element.getAttribute("content")],
-          baseUrl,
+          documentBaseUrl,
           images,
           imageSet,
         );
       },
     });
 
-  await drainResponse(rewriter.transform(response));
+  await drainResponse(rewriter.transform(cleanedResponse));
   linkHandler.finish();
 
   const bodyText = body.value();
@@ -275,6 +292,11 @@ function createTextCollector(limit: number): TextCollector {
   return {
     handler: {
       text(chunk) {
+        if (chunk.removed) {
+          if (chunk.lastInTextNode) current = "";
+          return;
+        }
+
         const remaining = limit - length - current.length;
         if (remaining > 0) current += chunk.text.slice(0, remaining);
         if (chunk.lastInTextNode) flush();
@@ -287,8 +309,8 @@ function createTextCollector(limit: number): TextCollector {
   };
 }
 
-function createLinkHandler(baseUrl: URL, links: ExtractedContent["links"]) {
-  type LinkDraft = { href: string; label: string } | null;
+function createLinkHandler(getBaseUrl: () => URL, links: ExtractedContent["links"]) {
+  type LinkDraft = { href: string; label: string; hasExplicitLabel: boolean } | null;
   const active: LinkDraft[] = [];
   const byHref = new Map<string, ExtractedContent["links"][number]>();
 
@@ -309,13 +331,15 @@ function createLinkHandler(baseUrl: URL, links: ExtractedContent["links"]) {
 
   const handler: HTMLRewriterElementContentHandlers = {
     element(element) {
-      const href = resolveLinkUrl(element.getAttribute("href"), baseUrl);
+      const href = resolveLinkUrl(element.getAttribute("href"), getBaseUrl());
+      const explicitLabel =
+        element.getAttribute("aria-label") || element.getAttribute("title") || "";
       const draft =
         href && links.length + active.length < MAX_LINKS
           ? {
               href,
-              label:
-                element.getAttribute("aria-label") ?? element.getAttribute("title") ?? "",
+              label: explicitLabel,
+              hasExplicitLabel: Boolean(explicitLabel.trim()),
             }
           : null;
       active.push(draft);
@@ -323,7 +347,7 @@ function createLinkHandler(baseUrl: URL, links: ExtractedContent["links"]) {
     },
     text(chunk) {
       const draft = active.at(-1);
-      if (draft && draft.label.length < 300) {
+      if (draft && !draft.hasExplicitLabel && draft.label.length < 300) {
         draft.label += chunk.text.slice(0, 300 - draft.label.length);
       }
     },
