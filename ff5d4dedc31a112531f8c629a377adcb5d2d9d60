@@ -1,0 +1,27 @@
+package-lock.json
+  s_4cb944f67aa2d2::t_fda8954e8a1607 17,128-143,1407-1552,1872-1878,1902-1912,1933-1943,1998-2007,2155-2298,2343-2377,2430-2449,2548-2557,2575-2589,2609-2615,2651-2660,2758-2813,2829-2838,2918-2938,2945-2951,2968-2977,3116-3146,3203-3230,3247-3267,3274-3283,3302-3311,3688-3697,3853-3862,3905-3938,3983-3989,4081-4090,4104-4141,4207-4216,4490-4541,4561-4572,4618-4672,4703,4749-4759,4770-4777,5043-5053
+package.json
+  s_4cb944f67aa2d2::t_d16d4a70ba8a96 12,22
+src/extract/index.ts
+  s_4cb944f67aa2d2::t_3264aa68010625 1,5-28,30-274,276-286,289-487
+src/generate/index.test.mjs
+  s_4cb944f67aa2d2::t_97fd465ae73bcb 1-219
+src/generate/index.ts
+  s_4cb944f67aa2d2::t_877b3c44dde1c0 6,15,23-310,316-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ff5d4dedc31a112531f8c629a377adcb5d2d9d60",
+  "prompts": {},
+  "sessions": {
+    "s_4cb944f67aa2d2": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0755968b9ffeMYkjTCYs5IHQ5T",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Antoni T <atokarski@cloudflare.com>"
+    }
+  }
+}

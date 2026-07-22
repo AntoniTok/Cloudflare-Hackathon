@@ -1,0 +1,23 @@
+package.json
+  s_ecd32aaee40185::t_d0c7af8ef27b97 11
+src/generate/index.test.mjs
+  s_ecd32aaee40185::t_4a9c1533a666d6 1-219
+src/generate/index.ts
+  s_ecd32aaee40185::t_99c604463f67c5 6,15,23-310,316-364
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "960620dd48ce16cca7f6efca6276053b99047527",
+  "prompts": {},
+  "sessions": {
+    "s_ecd32aaee40185": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_07535ff84ffehTTU2SEpr067Zl",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "catalin <catalin@cloudflare.com>"
+    }
+  }
+}
