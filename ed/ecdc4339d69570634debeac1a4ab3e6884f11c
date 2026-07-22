@@ -1,0 +1,19 @@
+package-lock.json
+  s_94d51decb1dea7::t_50b6eb0201f8ce 18,1721-1755
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "edecdc4339d69570634debeac1a4ab3e6884f11c",
+  "prompts": {},
+  "sessions": {
+    "s_94d51decb1dea7": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_0754279d4ffe01TL2smvw5WCfR",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "ayeung <ayeung@cloudflare.com>"
+    }
+  }
+}
