@@ -98,6 +98,25 @@ test("supports text-only input and legacy Workers AI stream events", async () =>
   assert.equal(typeof capture.input.messages[1].content, "string");
 });
 
+test("preserves digit-only tokens sent as JSON numbers (qwen legacy stream)", async () => {
+  // qwen2.5-coder streams digit tokens as NUMBERS, not strings.
+  const sse = [
+    'data: {"response":"<!doctype html><html><body>w:"}',
+    'data: {"response":1}',
+    'data: {"response":2}',
+    'data: {"response":0}',
+    'data: {"response":0}',
+    'data: {"response":"px</body></html>"}',
+    "data: [DONE]",
+    "",
+  ].join("\n\n");
+  const env = createEnv(createStream(sse));
+
+  const html = (await collect(generate(content, "keep the numbers", env))).join("");
+
+  assert.match(html, /w:1200px/);
+});
+
 test("surfaces errors delivered inside the AI stream", async () => {
   const env = createEnv(
     createStream('data: {"error":{"message":"model overloaded"}}\n\n'),

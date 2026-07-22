@@ -20,7 +20,36 @@
 import type { ExtractedContent } from "../CONTRACTS";
 import type { Env } from "../env";
 
-const MODEL = "@cf/moonshotai/kimi-k2.7-code";
+const DEFAULT_MODEL = "@cf/moonshotai/kimi-k2.7-code";
+// Models that accept image_url vision input. Non-vision models get the text-only
+// prompt (the screenshot is auto-omitted) so switching GENERATION_MODEL is safe.
+const VISION_MODELS = new Set<string>(["@cf/moonshotai/kimi-k2.7-code"]);
+// kimi-k2.7-code is a REASONING model: unbounded it spends a long time emitting
+// reasoning tokens before any HTML, so time-to-first-visible-token can exceed
+// 100s. "low" keeps it responsive for this creative-HTML task. Override with the
+// GENERATION_REASONING_EFFORT var. (Technique adopted from mutable-app-framework.)
+type ReasoningEffort = "low" | "medium" | "high";
+const DEFAULT_REASONING_EFFORT: ReasoningEffort = "low";
+
+function parseReasoningEffort(value: string | undefined): ReasoningEffort {
+  const v = value?.trim().toLowerCase();
+  return v === "low" || v === "medium" || v === "high" ? v : DEFAULT_REASONING_EFFORT;
+}
+// Fail-fast guards (also adopted from mutable-app-framework's streaming author):
+// an overall wall-clock budget and a max gap between streamed chunks, so a slow
+// or stalled generation surfaces a clear error instead of hanging. Override the
+// wall-clock budget with GENERATION_TIMEOUT_MS.
+const DEFAULT_TIMEOUT_MS = 120_000;
+const IDLE_TIMEOUT_MS = 45_000;
+
+/** Reject if `promise` doesn't settle within `ms` (labelled). */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), Math.max(0, ms));
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 const MAX_INSTRUCTION_CHARS = 8_000;
 const MAX_SOURCE_TEXT_CHARS = 50_000;
 const MAX_TITLE_CHARS = 1_000;
@@ -170,8 +199,11 @@ function parseEvent(block: string): ParsedEvent {
   }
 
   // Legacy Workers AI text-generation models stream fragments in `response`.
-  if (typeof payload.response === "string") {
-    return { done: false, text: payload.response };
+  // NOTE: some models (e.g. qwen2.5-coder) send digit-only tokens as JSON
+  // NUMBERS, not strings ({"response":1}). Coerce string|number or every digit
+  // token is silently dropped (e.g. "1200px" -> "px", "#00ff00" -> "#ff").
+  if (typeof payload.response === "string" || typeof payload.response === "number") {
+    return { done: false, text: String(payload.response) };
   }
 
   // OpenAI-compatible models, including Kimi, stream chat completion deltas.
@@ -184,8 +216,10 @@ function parseEvent(block: string): ParsedEvent {
       if (typeof choice.finish_reason === "string") {
         finishReason = choice.finish_reason;
       }
-      if (isRecord(choice.delta) && typeof choice.delta.content === "string") {
-        text ??= choice.delta.content;
+      // Same number-token guard as the legacy path above.
+      const delta = isRecord(choice.delta) ? choice.delta.content : undefined;
+      if (typeof delta === "string" || typeof delta === "number") {
+        text ??= String(delta);
       }
     }
 
@@ -201,9 +235,11 @@ function isByteStream(value: unknown): value is ReadableStream<Uint8Array> {
 
 async function* streamFragments(
   stream: ReadableStream<Uint8Array>,
+  { timeoutMs, idleMs }: { timeoutMs: number; idleMs: number },
 ): AsyncIterable<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
+  const deadline = Date.now() + timeoutMs;
   let buffer = "";
   let prefix = "";
   let suffix = "";
@@ -241,7 +277,18 @@ async function* streamFragments(
 
   try {
     while (!finished) {
-      const { done, value } = await reader.read();
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        throw new Error(
+          `Workers AI generation exceeded ${Math.round(timeoutMs / 1000)}s. ` +
+            `Set GENERATION_MODEL to a faster model or lower GENERATION_REASONING_EFFORT.`,
+        );
+      }
+      const { done, value } = await withTimeout(
+        reader.read(),
+        Math.min(remaining, idleMs),
+        "Workers AI generation stalled (no output). Try again or use a faster model.",
+      );
       sourceDone = done;
       buffer += done
         ? decoder.decode()
@@ -321,20 +368,27 @@ export async function* generate(
     throw new Error("The transformation instruction exceeds 8000 characters");
   }
 
+  const model = env.GENERATION_MODEL?.trim() || DEFAULT_MODEL;
+  const reasoningEffort = parseReasoningEffort(env.GENERATION_REASONING_EFFORT);
+  const timeoutMs = Number(env.GENERATION_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+
   const prompt = buildUserPrompt(content, normalizedInstruction);
   const screenshot = content.screenshot?.trim();
-  const userContent: UserMessage["content"] = screenshot
-    ? [
-        { type: "text", text: prompt },
-        {
-          type: "image_url",
-          image_url: {
-            url: screenshotDataUrl(screenshot),
-            detail: "high",
+  // Only attach the screenshot for vision-capable models; text-only models
+  // (glm, qwen-coder) would reject an image_url part.
+  const userContent: UserMessage["content"] =
+    screenshot && VISION_MODELS.has(model)
+      ? [
+          { type: "text", text: prompt },
+          {
+            type: "image_url",
+            image_url: {
+              url: screenshotDataUrl(screenshot),
+              detail: "high",
+            },
           },
-        },
-      ]
-    : prompt;
+        ]
+      : prompt;
 
   const input = {
     messages: [
@@ -345,13 +399,17 @@ export async function* generate(
     max_completion_tokens: 12_000,
     temperature: 0.7,
     top_p: 0.9,
+    // Reasoning models otherwise burn the whole budget thinking before emitting
+    // HTML; kept low for responsiveness (see DEFAULT_REASONING_EFFORT).
+    reasoning_effort: reasoningEffort,
   } satisfies ChatCompletionsInput;
 
-  // For a lower-latency text-only fallback, use @cf/zai-org/glm-5.2 or
-  // @cf/qwen/qwen2.5-coder-32b-instruct and omit the screenshot message part.
+  // Faster alternatives if latency is still too high: set GENERATION_MODEL to
+  // @cf/zai-org/glm-5.2 or @cf/qwen/qwen2.5-coder-32b-instruct (text-only; the
+  // screenshot is auto-omitted for non-vision models).
   let result: unknown;
   try {
-    result = await env.AI.run(MODEL, input);
+    result = await env.AI.run(model, input);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Workers AI generation failed: ${message}`);
@@ -361,5 +419,5 @@ export async function* generate(
     throw new Error("Workers AI did not return a streaming response");
   }
 
-  yield* streamFragments(result);
+  yield* streamFragments(result, { timeoutMs, idleMs: IDLE_TIMEOUT_MS });
 }
